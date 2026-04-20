@@ -2,144 +2,104 @@
 
 PyTorch • Python • MIT License
 
-A production-grade PyTorch implementation of a self-pruning feed-forward neural network that learns both weights and their importance simultaneously.
-Instead of pruning after training, the model suppresses unnecessary connections during training itself, resulting in a compact and efficient architecture.
+A production-quality PyTorch implementation of a self-pruning feed-forward neural network. The network learns not just its weights, but also which weights are actually necessary, automatically pruning unneeded connections during training.
 
-💡 Core Concept
+💡 Key Idea
+Each weight in the network is paired with a learnable gate parameter. During training:
 
-Each weight in the network is paired with a learnable gate parameter:
-
-Gate scores → passed through a sigmoid → values in [0, 1]
-
-Each weight is scaled by its gate:
-
-W_pruned = W × sigmoid(gate_score)
-Gates close to:
-1 → Important connection (retained)
-0 → Unnecessary connection (effectively pruned)
-
-An L1 regularization term on gate values encourages sparsity, pushing redundant connections toward zero.
-
+Gate scores pass through a sigmoid to produce values in [0, 1].
+Each weight is multiplied by its gate value — gates near 0 effectively prune the weight.
+An L1 penalty on gate values encourages the network to push unnecessary gates toward zero.
+The result is a sparse network that maintains competitive accuracy.
 🛠️ Project Structure
 newproj/
 ├── config/
-│   └── config.yaml              # Hyperparameters & experiment configs
+│   └── config.yaml              # All hyperparameters & experiment definitions
 ├── src/
 │   ├── models/
-│   │   └── prunable_net.py      # Prunable layers & network definition
+│   │   └── prunable_net.py      # PrunableLinear layer + SelfPruningNetwork
 │   ├── training/
-│   │   ├── loss.py              # Sparsity-aware loss function
-│   │   └── trainer.py           # Training loop + early stopping
+│   │   ├── loss.py              # SparsityAwareLoss (CE + λ·L1)
+│   │   └── trainer.py           # Full training loop with early stopping
 │   ├── data/
-│   │   └── dataset.py           # CIFAR-10 loader & augmentation
+│   │   └── dataset.py           # CIFAR-10 loaders with augmentation
 │   ├── evaluation/
-│   │   └── metrics.py           # Accuracy & sparsity metrics
+│   │   └── metrics.py           # Accuracy & sparsity computation
 │   └── utils/
-│       ├── helpers.py           # Seeds, device, configs
-│       ├── visualization.py     # Plots & graphs
-│       └── report.py            # Auto Markdown report generation
+│       ├── helpers.py           # Seed, device, config utilities
+│       ├── visualization.py     # Gate histograms & trade-off plots
+│       └── report.py            # Auto-generated Markdown report
 ├── main.py                      # CLI entry point
 ├── requirements.txt
 └── README.md
 🚀 Setup
-1. Create Virtual Environment
+1. Create a virtual environment (recommended)
 python -m venv venv
-
 # Windows
 venv\Scripts\activate
-
-# Linux / Mac
+# Linux/Mac
 source venv/bin/activate
-2. Install Dependencies
+2. Install dependencies
 pip install -r requirements.txt
 💻 Usage
-▶️ Run Full Training (CIFAR-10)
+Run all experiments (Real CIFAR-10)
 python main.py
+This will download CIFAR-10, train three models with different λ (sparsity penalty) values as defined in config/config.yaml, generate plots, and compile a Markdown report.
 
-This will:
+Quick Pipeline Validation (Synthetic Data)
+If you have a slow internet connection and want to quickly validate that the entire pipeline (training, early stopping, checkpointing, plot generation) works:
 
-Download CIFAR-10
-Train models across multiple λ values
-Generate plots & reports
-Save checkpoints
-⚡ Quick Pipeline Test (No Dataset Download)
 python main.py --synthetic --epochs 3
-
-Useful for verifying:
-
-Training loop
-Early stopping
-Logging & plotting
-🧰 CLI Options
+CLI Options
 Flag	Description
---config PATH	Custom config file
---experiment NAME	Run specific experiment
---epochs N	Override epochs
+--config PATH	Path to YAML config file (default: config/config.yaml)
+--experiment NAME	Run only the named experiment
+--epochs N	Override number of training epochs
 --batch-size N	Override batch size
 --lr FLOAT	Override learning rate
---seed INT	Set random seed
---no-tensorboard	Disable TensorBoard
---synthetic	Use random data (fast testing)
-📊 Monitoring
-
-Run TensorBoard to track training:
-
+--seed INT	Override random seed
+--no-tensorboard	Disable TensorBoard logging
+--synthetic	Bypass real data download & use random tensors (for quick tests)
+Monitor training with TensorBoard
 tensorboard --logdir runs/
 ⚙️ Configuration
+All hyperparameters are controlled via config/config.yaml:
 
-All settings are defined in:
-
-config/config.yaml
-
-Includes:
-
-Model architecture
-Training parameters
-Pruning thresholds
-Early stopping criteria
-Experiment λ sweeps
-🔬 Under the Hood
-🧩 Prunable Layer
-gates = sigmoid(gate_scores)
-pruned_weight = weight * gates
+Model: Input/hidden/output dimensions
+Training: Epochs, batch size, learning rate, optimizer
+Pruning: Gate threshold for sparsity measurement
+Early stopping: Patience and minimum delta
+Experiments: List of λ values to sweep
+🔬 How It Works
+PrunableLinear Layer
+gates = sigmoid(gate_scores)          # [0, 1] per weight
+pruned_weight = weight * gates        # Element-wise masking
 output = input @ pruned_weight.T + bias
-weight and gate_scores are both learnable parameters
-Gradients flow through both → enabling joint optimization
-Custom implementation (not using nn.Linear) for full control
-📉 Loss Function
-Total Loss = CrossEntropy + λ × Σ sigmoid(gate_scores)
-CrossEntropy → ensures prediction accuracy
-L1 sparsity term → encourages pruning
-λ (lambda) → controls sparsity vs accuracy trade-off
-📏 Sparsity Metric
+Both weight and gate_scores are nn.Parameter — gradients flow through both simultaneously.
+Standard torch.nn.Linear is deliberately not used internally to allow this explicit control.
+Loss Function
+Total Loss = CrossEntropy(logits, targets) + λ × Σ sigmoid(gate_scores)
+The L1 penalty on sigmoid outputs drives gate values toward 0, effectively pruning weights. The classification loss counterbalances this, keeping essential connections alive.
 
-A weight is considered pruned if:
+Sparsity Measurement
+A weight is considered pruned if its gate value sigmoid(gate_score) < 0.01.
 
-sigmoid(gate_score) < 0.01
-📦 Outputs
-
-After training, check:
+📊 Outputs
+After training completes, check the reports/ and checkpoints/ folders:
 
 Output	Location
-Model checkpoints	checkpoints/<experiment>/
-Gate histograms	reports/gate_histogram_*.png
-Accuracy vs Sparsity plot	reports/accuracy_sparsity_tradeoff.png
-Full report	reports/experiment_report.md
-TensorBoard logs	runs/<experiment>/
-📈 Expected Trade-offs
-λ Value	Accuracy	Sparsity
-1e-5 (low)	~52–55%	Low (~5–15%)
-1e-4 (medium)	~48–52%	Medium (~30–60%)
-1e-3 (high)	~35–45%	High (~70–95%)
+Model checkpoints	checkpoints/<experiment_name>/
+Gate histogram plot	reports/gate_histogram_*.png
+Accuracy vs sparsity plot	reports/accuracy_sparsity_tradeoff.png
+Full experiment report	reports/experiment_report.md
+TensorBoard logs	runs/<experiment_name>/
+Expected Trade-offs
+Lambda	Expected Accuracy	Expected Sparsity
+1e-5 (low)	~52-55%	Low (~5-15%)
+1e-4 (medium)	~48-52%	Medium (~30-60%)
+1e-3 (high)	~35-45%	High (~70-95%)
+Note: Exact numbers depend on the run. The key insight is the clear trade-off between accuracy and sparsity as λ increases.
 
-As λ increases → sparsity increases → accuracy may drop
-This highlights the efficiency vs performance trade-off.
-
-🧠 Why This Matters
-Eliminates need for post-training pruning
-Produces lighter, faster models
-Improves deployment efficiency (edge/low-resource devices)
-Demonstrates adaptive model compression
 📝 License
-
+MIT
 MIT License
