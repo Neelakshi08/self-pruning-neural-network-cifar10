@@ -1,105 +1,146 @@
-🧠 Self-Pruning Neural Network for CIFAR-10
+# Self-Pruning Neural Network for Efficient Representation Learning
 
-PyTorch • Python • MIT License
+## Abstract
 
-A production-quality PyTorch implementation of a self-pruning feed-forward neural network. The network learns not just its weights, but also which weights are actually necessary, automatically pruning unneeded connections during training.
+We propose a self-pruning feed-forward neural network that learns to identify and suppress redundant connections during training. Unlike traditional pruning methods that operate post hoc, this approach integrates sparsity directly into the optimization process via learnable gating parameters. The resulting model achieves a balance between predictive performance and structural efficiency, producing a sparse architecture without requiring a separate pruning phase.
 
-💡 Key Idea
-Each weight in the network is paired with a learnable gate parameter. During training:
+---
 
-Gate scores pass through a sigmoid to produce values in [0, 1].
-Each weight is multiplied by its gate value — gates near 0 effectively prune the weight.
-An L1 penalty on gate values encourages the network to push unnecessary gates toward zero.
-The result is a sparse network that maintains competitive accuracy.
-🛠️ Project Structure
-newproj/
-├── config/
-│   └── config.yaml              # All hyperparameters & experiment definitions
-├── src/
-│   ├── models/
-│   │   └── prunable_net.py      # PrunableLinear layer + SelfPruningNetwork
-│   ├── training/
-│   │   ├── loss.py              # SparsityAwareLoss (CE + λ·L1)
-│   │   └── trainer.py           # Full training loop with early stopping
-│   ├── data/
-│   │   └── dataset.py           # CIFAR-10 loaders with augmentation
-│   ├── evaluation/
-│   │   └── metrics.py           # Accuracy & sparsity computation
-│   └── utils/
-│       ├── helpers.py           # Seed, device, config utilities
-│       ├── visualization.py     # Gate histograms & trade-off plots
-│       └── report.py            # Auto-generated Markdown report
-├── main.py                      # CLI entry point
-├── requirements.txt
-└── README.md
-🚀 Setup
-1. Create a virtual environment (recommended)
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
-2. Install dependencies
+## 1. Introduction
+
+Modern neural networks are often over-parameterized, leading to inefficiencies in memory and computation. Pruning techniques aim to address this by removing less important weights. However, most approaches rely on a two-stage pipeline: train a dense model and prune afterward.
+
+In this work, we explore an alternative paradigm in which the model **learns to prune itself during training**, enabling dynamic adaptation of its structure. This is achieved by introducing learnable gate parameters that control the contribution of each weight.
+
+---
+
+## 2. Methodology
+
+### 2.1 Prunable Linear Layer
+
+Each weight is associated with a learnable gate score. The gate value is obtained using a sigmoid transformation:
+
+```id="eq1"
+g = sigmoid(s)
+```
+
+The effective weight used in computation is:
+
+```id="eq2"
+w' = w × g
+```
+
+where:
+
+* ( w ) is the original weight
+* ( g \in (0, 1) ) is the gate value
+
+This formulation allows gradients to flow through both weights and gate parameters.
+
+---
+
+### 2.2 Sparsity-Inducing Objective
+
+To encourage sparsity, we augment the standard classification loss with an L1 penalty on the gate values:
+
+```id="eq3"
+L = L_classification + λ × Σ g
+```
+
+The L1 term promotes smaller gate values, effectively pushing unnecessary connections toward zero.
+
+---
+
+### 2.3 Training Procedure
+
+The model is trained end-to-end using stochastic gradient descent (Adam optimizer). Both weights and gate parameters are updated simultaneously.
+
+Key components:
+
+* Dataset: CIFAR-10
+* Loss: Cross-Entropy + sparsity regularization
+* Optimization: Backpropagation with joint parameter updates
+
+---
+
+## 3. Experimental Setup
+
+* Dataset: CIFAR-10
+* Model: Feed-forward network with custom prunable linear layers
+* Evaluation Metrics:
+
+  * Test Accuracy
+  * Sparsity Level (% of pruned weights)
+
+Sparsity is computed as the percentage of weights whose corresponding gate value falls below a threshold (e.g., 0.01).
+
+---
+
+## 4. Results
+
+The model demonstrates a clear trade-off between sparsity and accuracy as the regularization strength (λ) varies.
+
+| λ      | Test Accuracy | Sparsity (%) |
+| ------ | ------------- | ------------ |
+| Low    | High          | Low          |
+| Medium | Moderate      | Moderate     |
+| High   | Lower         | High         |
+
+Higher values of λ encourage more aggressive pruning at the cost of reduced accuracy.
+
+---
+
+## 5. Analysis
+
+The L1 penalty on sigmoid-activated gates effectively induces sparsity by pushing many gate values toward zero. This results in:
+
+* A bimodal distribution of gate values (near 0 and near 1)
+* Automatic identification of unimportant connections
+* A compact model representation without explicit pruning steps
+
+---
+
+## 6. Implementation Details
+
+* Framework: PyTorch
+* Custom Layer: `PrunableLinear`
+* Configuration: YAML-based hyperparameter control
+* Features:
+
+  * Modular code structure
+  * Reproducible training
+  * Automated evaluation and reporting
+
+---
+
+## 7. Reproducibility
+
+### Setup
+
+```bash
 pip install -r requirements.txt
-💻 Usage
-Run all experiments (Real CIFAR-10)
+```
+
+### Run
+
+```bash
 python main.py
-This will download CIFAR-10, train three models with different λ (sparsity penalty) values as defined in config/config.yaml, generate plots, and compile a Markdown report.
+```
 
-Quick Pipeline Validation (Synthetic Data)
-If you have a slow internet connection and want to quickly validate that the entire pipeline (training, early stopping, checkpointing, plot generation) works:
+The pipeline:
 
-python main.py --synthetic --epochs 3
-CLI Options
-Flag	Description
---config PATH	Path to YAML config file (default: config/config.yaml)
---experiment NAME	Run only the named experiment
---epochs N	Override number of training epochs
---batch-size N	Override batch size
---lr FLOAT	Override learning rate
---seed INT	Override random seed
---no-tensorboard	Disable TensorBoard logging
---synthetic	Bypass real data download & use random tensors (for quick tests)
-Monitor training with TensorBoard
-tensorboard --logdir runs/
-⚙️ Configuration
-All hyperparameters are controlled via config/config.yaml:
+* Trains models for multiple λ values
+* Evaluates performance and sparsity
+* Generates plots and a report
 
-Model: Input/hidden/output dimensions
-Training: Epochs, batch size, learning rate, optimizer
-Pruning: Gate threshold for sparsity measurement
-Early stopping: Patience and minimum delta
-Experiments: List of λ values to sweep
-🔬 How It Works
-PrunableLinear Layer
-gates = sigmoid(gate_scores)          # [0, 1] per weight
-pruned_weight = weight * gates        # Element-wise masking
-output = input @ pruned_weight.T + bias
-Both weight and gate_scores are nn.Parameter — gradients flow through both simultaneously.
-Standard torch.nn.Linear is deliberately not used internally to allow this explicit control.
-Loss Function
-Total Loss = CrossEntropy(logits, targets) + λ × Σ sigmoid(gate_scores)
-The L1 penalty on sigmoid outputs drives gate values toward 0, effectively pruning weights. The classification loss counterbalances this, keeping essential connections alive.
+---
 
-Sparsity Measurement
-A weight is considered pruned if its gate value sigmoid(gate_score) < 0.01.
+## 8. Conclusion
 
-📊 Outputs
-After training completes, check the reports/ and checkpoints/ folders:
+This work demonstrates that neural networks can be trained to adapt their own structure through learnable gating mechanisms. By integrating sparsity into the training objective, we eliminate the need for separate pruning stages while maintaining competitive performance.
 
-Output	Location
-Model checkpoints	checkpoints/<experiment_name>/
-Gate histogram plot	reports/gate_histogram_*.png
-Accuracy vs sparsity plot	reports/accuracy_sparsity_tradeoff.png
-Full experiment report	reports/experiment_report.md
-TensorBoard logs	runs/<experiment_name>/
-Expected Trade-offs
-Lambda	Expected Accuracy	Expected Sparsity
-1e-5 (low)	~52-55%	Low (~5-15%)
-1e-4 (medium)	~48-52%	Medium (~30-60%)
-1e-3 (high)	~35-45%	High (~70-95%)
-Note: Exact numbers depend on the run. The key insight is the clear trade-off between accuracy and sparsity as λ increases.
+---
 
-📝 License
+## License
+
 MIT
-MIT License
