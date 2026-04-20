@@ -1,139 +1,145 @@
-# Self-Pruning Neural Network (CIFAR-10)
+🧠 Self-Pruning Neural Network for CIFAR-10
 
-This project implements a feed-forward neural network that learns to **prune its own weights during training** using learnable gate parameters.
+PyTorch • Python • MIT License
 
-Instead of removing weights after training, the model identifies and suppresses unnecessary connections as part of the learning process.
+A production-grade PyTorch implementation of a self-pruning feed-forward neural network that learns both weights and their importance simultaneously.
+Instead of pruning after training, the model suppresses unnecessary connections during training itself, resulting in a compact and efficient architecture.
 
----
+💡 Core Concept
 
-## Overview
+Each weight in the network is paired with a learnable gate parameter:
 
-Each weight in the network is paired with a learnable gate value in the range `[0, 1]`.
-During training:
+Gate scores → passed through a sigmoid → values in [0, 1]
 
-* Gates close to `0` effectively remove weights
-* Gates close to `1` retain important connections
+Each weight is scaled by its gate:
 
-A sparsity penalty is applied to encourage the model to keep only essential weights, resulting in a **compact and efficient network**.
+W_pruned = W × sigmoid(gate_score)
+Gates close to:
+1 → Important connection (retained)
+0 → Unnecessary connection (effectively pruned)
 
----
+An L1 regularization term on gate values encourages sparsity, pushing redundant connections toward zero.
 
-## Key Idea
-
-For every layer:
-
-* A gate parameter is learned alongside each weight
-* Gates are obtained using a sigmoid function
-* Effective weights are computed as:
-
-```
-pruned_weight = weight × sigmoid(gate_score)
-```
-
----
-
-## Loss Function
-
-The model is trained using a combination of classification loss and sparsity regularization:
-
-```
-Total Loss = CrossEntropyLoss + λ × SparsityLoss
-```
-
-* CrossEntropyLoss ensures prediction accuracy
-* SparsityLoss (L1 on gates) encourages pruning
-* λ controls the trade-off between accuracy and sparsity
-
----
-
-## Project Structure
-
-```
-.
-├── config/          # Configuration files
+🛠️ Project Structure
+newproj/
+├── config/
+│   └── config.yaml              # Hyperparameters & experiment configs
 ├── src/
-│   ├── models/      # Prunable layers and network
-│   ├── training/    # Training loop and loss
-│   ├── data/        # Dataset loading
-│   ├── evaluation/  # Metrics
-│   └── utils/       # Helpers and visualization
-├── reports/         # Generated results and plots
-├── checkpoints/     # Saved models
-├── main.py
+│   ├── models/
+│   │   └── prunable_net.py      # Prunable layers & network definition
+│   ├── training/
+│   │   ├── loss.py              # Sparsity-aware loss function
+│   │   └── trainer.py           # Training loop + early stopping
+│   ├── data/
+│   │   └── dataset.py           # CIFAR-10 loader & augmentation
+│   ├── evaluation/
+│   │   └── metrics.py           # Accuracy & sparsity metrics
+│   └── utils/
+│       ├── helpers.py           # Seeds, device, configs
+│       ├── visualization.py     # Plots & graphs
+│       └── report.py            # Auto Markdown report generation
+├── main.py                      # CLI entry point
 ├── requirements.txt
 └── README.md
-```
-
----
-
-## Setup
-
-Create a virtual environment and install dependencies:
-
-```bash
+🚀 Setup
+1. Create Virtual Environment
 python -m venv venv
-source venv/bin/activate   # or venv\Scripts\activate (Windows)
 
+# Windows
+venv\Scripts\activate
+
+# Linux / Mac
+source venv/bin/activate
+2. Install Dependencies
 pip install -r requirements.txt
-```
-
----
-
-## Usage
-
-Run training:
-
-```bash
+💻 Usage
+▶️ Run Full Training (CIFAR-10)
 python main.py
-```
 
 This will:
 
-* Train the model on CIFAR-10
-* Run experiments for multiple λ values
-* Generate evaluation metrics and plots
-* Save results and a report
+Download CIFAR-10
+Train models across multiple λ values
+Generate plots & reports
+Save checkpoints
+⚡ Quick Pipeline Test (No Dataset Download)
+python main.py --synthetic --epochs 3
 
----
+Useful for verifying:
 
-## Evaluation
+Training loop
+Early stopping
+Logging & plotting
+🧰 CLI Options
+Flag	Description
+--config PATH	Custom config file
+--experiment NAME	Run specific experiment
+--epochs N	Override epochs
+--batch-size N	Override batch size
+--lr FLOAT	Override learning rate
+--seed INT	Set random seed
+--no-tensorboard	Disable TensorBoard
+--synthetic	Use random data (fast testing)
+📊 Monitoring
 
-After training, the following are reported:
+Run TensorBoard to track training:
 
-* **Test Accuracy**
-* **Sparsity Level (%)**
-  Percentage of weights where gate value < 0.01
+tensorboard --logdir runs/
+⚙️ Configuration
 
----
+All settings are defined in:
 
-## Expected Behavior
+config/config.yaml
 
-As λ increases:
+Includes:
 
-* Sparsity increases (more weights removed)
-* Accuracy may decrease
+Model architecture
+Training parameters
+Pruning thresholds
+Early stopping criteria
+Experiment λ sweeps
+🔬 Under the Hood
+🧩 Prunable Layer
+gates = sigmoid(gate_scores)
+pruned_weight = weight * gates
+output = input @ pruned_weight.T + bias
+weight and gate_scores are both learnable parameters
+Gradients flow through both → enabling joint optimization
+Custom implementation (not using nn.Linear) for full control
+📉 Loss Function
+Total Loss = CrossEntropy + λ × Σ sigmoid(gate_scores)
+CrossEntropy → ensures prediction accuracy
+L1 sparsity term → encourages pruning
+λ (lambda) → controls sparsity vs accuracy trade-off
+📏 Sparsity Metric
 
-This demonstrates the trade-off between **model size and performance**.
+A weight is considered pruned if:
 
----
+sigmoid(gate_score) < 0.01
+📦 Outputs
 
-## Outputs
+After training, check:
 
-* Model checkpoints (`checkpoints/`)
-* Gate distribution plots (`reports/`)
-* Accuracy vs sparsity comparison
-* Markdown report with experiment results
+Output	Location
+Model checkpoints	checkpoints/<experiment>/
+Gate histograms	reports/gate_histogram_*.png
+Accuracy vs Sparsity plot	reports/accuracy_sparsity_tradeoff.png
+Full report	reports/experiment_report.md
+TensorBoard logs	runs/<experiment>/
+📈 Expected Trade-offs
+λ Value	Accuracy	Sparsity
+1e-5 (low)	~52–55%	Low (~5–15%)
+1e-4 (medium)	~48–52%	Medium (~30–60%)
+1e-3 (high)	~35–45%	High (~70–95%)
 
----
+As λ increases → sparsity increases → accuracy may drop
+This highlights the efficiency vs performance trade-off.
 
-## Notes
+🧠 Why This Matters
+Eliminates need for post-training pruning
+Produces lighter, faster models
+Improves deployment efficiency (edge/low-resource devices)
+Demonstrates adaptive model compression
+📝 License
 
-* Implemented using PyTorch
-* Custom linear layer ensures gradients flow through both weights and gates
-* Designed for clarity, modularity, and reproducibility
-
----
-
-## License
-
-MIT
+MIT License
